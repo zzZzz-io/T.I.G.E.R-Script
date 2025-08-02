@@ -1,0 +1,158 @@
+#include "definitions.h"
+#include <Arduino.h>
+#include <esp_now.h>
+#include <WiFi.h>
+
+// ====== GLOBAL VARIABLES ======
+volatile bool g_messageReceived = false;
+message_t g_incomingMessage;
+message_t g_outgoingMessage;
+
+
+// ====== ESP-NOW CALLBACK FUNCTIONS ======
+
+/**
+ * Callback function executed when data is received via ESP-NOW
+ * @param mac MAC address of sender
+ * @param data Received data buffer
+ * @param len Length of received data
+ */
+void onDataReceived(const uint8_t *mac, const uint8_t *data, int len) {
+    // Ensure we don't exceed buffer limits
+    char buffer[ESP_NOW_MAX_DATA_LEN + 1];
+    int messageLength = min(ESP_NOW_MAX_DATA_LEN, len);
+    strncpy(buffer, (const char *)data, messageLength);
+    
+    // Null terminate the string
+    buffer[messageLength] = '\0';
+    
+    // Copy to global message structure
+    memcpy(&g_incomingMessage, buffer, sizeof(g_incomingMessage));
+    
+    // Set flag to process message in main loop
+    g_messageReceived = true;
+}
+
+// ====== INITIALIZATION FUNCTIONS ======
+
+/**
+ * Initialize ESP-NOW communication
+ * @return true if successful, false otherwise
+ */
+bool initializeESPNow() {
+    printTimestampedMessage("Initializing ESP-NOW...");
+    
+    // Set WiFi mode and disconnect from any networks
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    
+    // Initialize ESP-NOW
+    if (esp_now_init() != ESP_OK) {
+        printTimestampedMessage("ERROR: ESP-NOW initialization failed!");
+        return false;
+    }
+    
+    // Register receive callback
+    esp_now_register_recv_cb(onDataReceived);
+    
+    // Add rocket as peer
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, ROCKET_MAC_ADDRESS, 6);
+    peerInfo.channel = 0;
+    peerInfo.encrypt = false;
+    
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+        printTimestampedMessage("ERROR: Failed to add rocket as peer!");
+        return false;
+    }
+    
+    printTimestampedMessage("ESP-NOW initialized successfully");
+    return true;
+}
+
+// ====== COMMUNICATION FUNCTIONS ======
+
+/**
+ * Send command to rocket
+ * @param command Command string to send
+ */
+void sendCommandToRocket(const String& command) {
+    // Copy command to outgoing message structure
+    command.toCharArray(g_outgoingMessage.payload, sizeof(g_outgoingMessage.payload));
+    
+    // Send message via ESP-NOW
+    esp_err_t result = esp_now_send(ROCKET_MAC_ADDRESS, (uint8_t*)&g_outgoingMessage, sizeof(g_outgoingMessage));
+    
+    printTimestamp();
+    Serial.print("Command sent: ");
+    Serial.print(g_outgoingMessage.payload);
+    Serial.println(result == ESP_OK ? " [SUCCESS]" : " [FAILED]");
+}
+
+/**
+ * Process received message from rocket
+ */
+void processReceivedMessage() {
+    printTimestamp();
+    Serial.print("Received from rocket: ");
+    Serial.println(g_incomingMessage.payload);
+    
+    // Reset the flag
+    g_messageReceived = false;
+}
+
+/**
+ * Handle user input from serial console
+ */
+void handleSerialInput() {
+    if (Serial.available()) {
+        String input = Serial.readStringUntil('\n');
+        input.trim();  // Remove whitespace and newlines
+        
+        if (input.length() > 0) {
+            sendCommandToRocket(input);
+        }
+    }
+}
+
+// ====== MAIN PROGRAM ======
+
+void setup() {
+    // Initialize serial communication
+    Serial.begin(SERIAL_BAUD_RATE);
+    while (!Serial) {
+        delay(10); // Wait for serial port to connect
+    }
+    
+    printTimestampedMessage("=== ROCKET BASE STATION INITIALIZED ===");
+    
+    // Initialize ESP-NOW communication
+    if (!initializeESPNow()) {
+        printTimestampedMessage("FATAL ERROR: ESP-NOW initialization failed!");
+        while (1) {
+            delay(1000); // Halt execution
+        }
+    }
+    
+    // Print usage instructions
+    Serial.println();
+    printTimestampedMessage("Base station ready!");
+    printTimestampedMessage("Available commands:");
+    printTimestampedMessage("  - 'deploy': Deploy parachute");
+    printTimestampedMessage("  - 'reset': Reset rocket systems");
+    printTimestampedMessage("Type command and press Enter to send to rocket.");
+    Serial.println();
+}
+
+void loop() {
+    // Handle incoming serial commands
+    handleSerialInput();
+    
+    // Process any received messages from rocket
+    if (g_messageReceived) {
+        processReceivedMessage();
+    }
+    
+    // Small delay to prevent overwhelming the system
+    delay(10);
+}
