@@ -1,4 +1,4 @@
-#include "definition.h"
+#include "definitions.h"
 #include <Arduino.h>
 
 // ====== MAC ADDRESS DEFINITIONS ======

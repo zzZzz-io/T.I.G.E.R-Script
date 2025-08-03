@@ -31,6 +31,7 @@
 #define SERVO_MAX_PULSE_US 2500
 
 // Data logging
+#define I2C_Clock_Speed 400000 // 400 kHz I2C speed
 #define DATA_LOG_INTERVAL_MS 20
 #define CSV_FILENAME "/flight_data.csv"
 
@@ -43,6 +44,7 @@ typedef struct {
 } message_t;
 
 struct SensorData {
+    float timestamp;
     float pressureRaw;
     float altitudeRaw;
     float pressureCorrected;
@@ -161,6 +163,10 @@ void onMessageSent(const uint8_t *mac, esp_now_send_status_t status) {
  * @param data Reference to SensorData structure to fill
  */
 void readSensorData(SensorData& data) {
+
+    // Log timestamp
+    data.timestamp = millis() / 1000.0f; // Convert to seconds
+
     // Read barometric/altitude data
     data.pressureRaw = altimeter.getPressure();
     data.altitudeRaw = altimeter.getAltitude();
@@ -171,8 +177,8 @@ void readSensorData(SensorData& data) {
     
     // Read temperature data
     data.temperatureC = altimeter.getTemperature();
-    data.temperatureESP32 = (float)temperatureRead(); // Read from ESP32's internal sensor
     data.temperatureF = (data.temperatureC * 9.0f / 5.0f) + 32.0f;
+    data.temperatureESP32 = (float)temperatureRead(); // Read from ESP32's internal sensor
     
     // Read IMU data
     imu.getSensorData();
@@ -210,11 +216,10 @@ bool logDataToSD(const SensorData& data) {
     }
     
     // Write CSV row
-    dataFile.printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
-                   data.pressureRaw, data.altitudeRaw, data.pressureCorrected, data.altitudeCorrected,
-                   data.altitudeChange, data.temperatureC, data.temperatureF,
-                   data.accelX, data.accelY, data.accelZ,
-                   data.gyroX, data.gyroY, data.gyroZ, data.temperatureESP32);
+    dataFile.printf("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
+                   data.timestamp, data.pressureRaw, data.altitudeRaw, data.pressureCorrected, data.altitudeCorrected,
+                   data.altitudeChange, data.temperatureC, data.temperatureF, data.temperatureESP32,
+                   data.accelX, data.accelY, data.accelZ, data.gyroX, data.gyroY, data.gyroZ);
     
     dataFile.close();
     return true;
@@ -242,6 +247,7 @@ void transmitFlightData(const SensorData& data) {
 bool initializeSensors() {
     printTimestampedMessage("Initializing I2C bus...");
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    Wire.setClock(I2C_Clock_Speed);
     delay(500); // Allow sensors to power up
     
     // Initialize altimeter
@@ -251,7 +257,8 @@ bool initializeSensors() {
         return false;
     }
     altimeter.setSeaPressure(SEA_LEVEL_PRESSURE);
-    
+    altimeter.setMode(MPL3115A2_ALTIMETER); 
+
     // Initialize IMU
     printTimestampedMessage("Initializing BMI270 IMU...");
     if (imu.beginI2C() != BMI2_OK) {
@@ -283,7 +290,7 @@ bool initializeSDCard() {
         return false;
     }
     
-    dataFile.println("Pressure_Raw,Altitude_Raw,Pressure_Corrected,Altitude_Corrected,Altitude_Change,Temperature_C,Temperature_F,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z");
+    dataFile.println("Time,Pressure_Raw,Altitude_Raw,Pressure_Corrected,Altitude_Corrected,Altitude_Change,Temperature_C,Temperature_F,Temperature_ESP32,Accel_X,Accel_Y,Accel_Z,Gyro_X,Gyro_Y,Gyro_Z");
     dataFile.close();
     
     printTimestampedMessage("SD card initialized and data file created");
@@ -410,6 +417,7 @@ void loop() {
         printTimestampedMessage(statusMsg);
         messageSent = false;
     }
+    
 
     delay(DATA_LOG_INTERVAL_MS);
 }
