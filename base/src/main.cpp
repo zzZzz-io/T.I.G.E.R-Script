@@ -1,13 +1,48 @@
-#include "definitions.h"
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+
+// ====== COMMUNICATION CONSTANTS ======
+#define MESSAGE_PAYLOAD_SIZE 100
+#define SERIAL_BAUD_RATE 115200
+
+// ====== MAC ADDRESS DEFINITIONS ======
+uint8_t ROCKET_MAC_ADDRESS[6] = {0x34, 0xcd, 0xb0, 0x06, 0x79, 0x60};
+uint8_t BASE_STATION_MAC_ADDRESS[6] = {0xDC, 0xDA, 0x0C, 0x64, 0x16, 0x60};
+
+// ====== DATA STRUCTURES ======
+typedef struct {
+    char payload[MESSAGE_PAYLOAD_SIZE];
+} message_t;
 
 // ====== GLOBAL VARIABLES ======
 volatile bool g_messageReceived = false;
 message_t g_incomingMessage;
 message_t g_outgoingMessage;
 
+// ====== UTILITY FUNCTIONS ======
+
+/**
+ * Print timestamp in format [HH:MM:SS.mmm]
+ */
+void printTimestamp() {
+    unsigned long ms = millis();
+    int hours = (ms / 3600000) % 24;
+    int minutes = (ms / 60000) % 60;
+    int seconds = (ms / 1000) % 60;
+    int milliseconds = ms % 1000;
+    
+    Serial.printf("[%02d:%02d:%02d.%03d] ", hours, minutes, seconds, milliseconds);
+}
+
+/**
+ * Print timestamped message
+ * @param message The message to print with timestamp
+ */
+void printTimestampedMessage(const char* message) {
+    printTimestamp();
+    Serial.println(message);
+}
 
 // ====== ESP-NOW CALLBACK FUNCTIONS ======
 
@@ -155,4 +190,5 @@ void loop() {
     
     // Small delay to prevent overwhelming the system
     delay(10);
+
 }
